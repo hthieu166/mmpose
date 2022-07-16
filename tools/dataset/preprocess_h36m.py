@@ -8,11 +8,12 @@ import os
 import pickle
 import tarfile
 import xml.etree.ElementTree as ET
-from os.path import join
+from os.path import join, exists
 
 import cv2
 import numpy as np
-from spacepy import pycdf
+# from spacepy import pycdf
+import cdflib
 
 
 class PreprocessH36m:
@@ -110,7 +111,9 @@ class PreprocessH36m:
                 key = (f'S{subject}', self.camera_ids[camera])
                 cameras[key] = self._get_camera_params(camera, subject)
 
-        out_file = join(self.processed_dir, 'annotation_body3d', 'cameras.pkl')
+        out_folder = join(self.processed_dir, 'annotation_body3d')
+        os.makedirs(out_folder, exist_ok=True)
+        out_file   = join(out_folder, 'cameras.pkl')
         with open(out_file, 'wb') as fout:
             pickle.dump(cameras, fout)
         print(f'Camera parameters have been written to "{out_file}".\n')
@@ -302,11 +305,11 @@ class PreprocessH36m:
         basename = self._get_base_filename(subject, action, subaction, camera)
 
         # load 2D keypoints
-        with pycdf.CDF(
+        with cdflib.CDF(
                 join(subj_dir, 'MyPoseFeatures', 'D2_Positions',
                      basename + '.cdf')) as cdf:
             kps_2d = np.array(cdf['Pose'])
-
+        
         num_frames = kps_2d.shape[1]
         kps_2d = kps_2d.reshape((num_frames, 32, 2))[::self.sample_rate,
                                                      self.movable_joints]
@@ -314,7 +317,7 @@ class PreprocessH36m:
                                 axis=2)
 
         # load 3D keypoints
-        with pycdf.CDF(
+        with cdflib.CDF(
                 join(subj_dir, 'MyPoseFeatures', 'D3_Positions_mono',
                      basename + '.cdf')) as cdf:
             kps_3d = np.array(cdf['Pose'])
@@ -346,23 +349,26 @@ class PreprocessH36m:
         img_dir = join(self.processed_dir, 'images', subject, sub_base)
         os.makedirs(img_dir, exist_ok=True)
         prefix = join(subject, sub_base, sub_base)
-
-        cap = cv2.VideoCapture(video_path)
-        i = 0
-        while True:
-            success, img = cap.read()
-            if not success:
-                break
-            if i % self.sample_rate == 0:
-                imgname = f'{prefix}_{i + 1:06d}.jpg'
-                imgnames.append(imgname)
-                dest_path = join(self.processed_dir, 'images', imgname)
-                if not os.path.exists(dest_path):
-                    cv2.imwrite(dest_path, img)
-                if len(imgnames) == len(centers):
+        if not exists(video_path):
+            # No video is available
+            imgnames = [f'{prefix}_{i * self.sample_rate + 1:06d}.jpg' for i in range(len(centers))]
+        else:
+            cap = cv2.VideoCapture(video_path)
+            i = 0
+            while True:
+                success, img = cap.read()
+                if not success:
                     break
-            i += 1
-        cap.release()
+                if i % self.sample_rate == 0:
+                    imgname = f'{prefix}_{i + 1:06d}.jpg'
+                    imgnames.append(imgname)
+                    dest_path = join(self.processed_dir, 'images', imgname)
+                    if not os.path.exists(dest_path):
+                        cv2.imwrite(dest_path, img)
+                    if len(imgnames) == len(centers):
+                        break
+                i += 1
+            cap.release()
         imgnames = np.array(imgnames)
 
         print(f'Annoatations for sequence "{subject} {basename}" are loaded. '
@@ -378,7 +384,7 @@ def parse_args():
     parser.add_argument(
         '--original',
         type=str,
-        required=True,
+        default=None,
         help='Directory of the original dataset with all files compressed. '
         'Specifically, .tgz files belonging to subject 1 should be placed '
         'under the subdirectory \"s1\".')
@@ -412,6 +418,7 @@ if __name__ == '__main__':
         extracted_dir=args.extracted,
         processed_dir=args.processed,
         sample_rate=args.sample_rate)
-    h36m.extract_tgz()
+    if args.original is not None:
+        h36m.extract_tgz()
     h36m.generate_cameras_file()
     h36m.generate_annotations()

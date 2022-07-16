@@ -10,7 +10,7 @@ import torch.distributed as dist
 from mmcv.runner import get_dist_info
 
 
-def single_gpu_test(model, data_loader):
+def single_gpu_test(model, data_loader, ):
     """Test model with a single gpu.
 
     This method tests model with a single gpu and displays test progress bar.
@@ -32,7 +32,6 @@ def single_gpu_test(model, data_loader):
         with torch.no_grad():
             result = model(return_loss=False, **data)
         results.append(result)
-
         # use the first key as main key to calculate the batch size
         batch_size = len(next(iter(data.values())))
         for _ in range(batch_size):

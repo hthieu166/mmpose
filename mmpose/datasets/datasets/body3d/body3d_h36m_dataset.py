@@ -143,7 +143,6 @@ class Body3DH36MDataset(Kpt3dSviewKpt2dDataset):
         else:
             raise NotImplementedError(
                 f'Unhandled joint_2d_src option {self.joint_2d_src}')
-
         return data_info
 
     @staticmethod
@@ -217,7 +216,6 @@ class Body3DH36MDataset(Kpt3dSviewKpt2dDataset):
         subset_size = int(len(sample_indices) * self.subset)
         start = np.random.randint(0, len(sample_indices) - subset_size + 1)
         end = start + subset_size
-
         return sample_indices[start:end]
 
     def _load_joint_2d_detection(self, det_file):

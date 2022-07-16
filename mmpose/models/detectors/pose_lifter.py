@@ -1,4 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
+import imp
 import warnings
 
 import mmcv
@@ -189,7 +190,7 @@ class PoseLifter(BasePose):
         if self.with_neck:
             features = self.neck(features)
         if self.with_keypoint:
-            output = self.keypoint_head(features)
+            output = self.keypoint_head(features, **kwargs)
 
         losses = dict()
         if self.with_keypoint:
@@ -239,6 +240,8 @@ class PoseLifter(BasePose):
 
     def forward_test(self, input, metas, **kwargs):
         """Defines the computation performed at every call when training."""
+        if type(metas) != list:
+            metas = metas.data[0]
         assert input.size(0) == len(metas)
 
         results = {}
@@ -257,7 +260,7 @@ class PoseLifter(BasePose):
                 traj_features = self.traj_neck(traj_features)
             traj_output = self.traj_head.inference_model(traj_features)
             results['traj_preds'] = traj_output
-
+        
         return results
 
     def forward_dummy(self, input):

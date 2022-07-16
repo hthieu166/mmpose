@@ -8,7 +8,7 @@ from .heads import *  # noqa
 from .losses import *  # noqa
 from .necks import *  # noqa
 from .utils import *  # noqa
-
+from .kinematic import *
 __all__ = [
     'BACKBONES', 'HEADS', 'NECKS', 'LOSSES', 'POSENETS', 'MESH_MODELS',
     'build_backbone', 'build_head', 'build_loss', 'build_posenet',

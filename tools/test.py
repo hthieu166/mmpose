@@ -27,7 +27,7 @@ except ImportError:
 def parse_args():
     parser = argparse.ArgumentParser(description='mmpose test model')
     parser.add_argument('config', help='test config file path')
-    parser.add_argument('checkpoint', help='checkpoint file')
+    parser.add_argument('--checkpoint', help='checkpoint file', default=None)
     parser.add_argument('--out', help='output result file')
     parser.add_argument(
         '--work-dir', help='the dir to save evaluation results')
@@ -108,7 +108,7 @@ def main():
     elif cfg.get('work_dir', None) is None:
         # use config filename as default work_dir if cfg.work_dir is None
         cfg.work_dir = osp.join('./work_dirs',
-                                osp.splitext(osp.basename(args.config))[0])
+                    osp.splitext(osp.basename(args.config))[0])
 
     mmcv.mkdir_or_exist(osp.abspath(cfg.work_dir))
 
@@ -150,6 +150,10 @@ def main():
     fp16_cfg = cfg.get('fp16', None)
     if fp16_cfg is not None:
         wrap_fp16_model(model)
+    
+    if args.checkpoint is None:
+        args.checkpoint = osp.join('./work_dirs',
+                                osp.splitext(osp.basename(args.config))[0], "latest.pth")
     load_checkpoint(model, args.checkpoint, map_location='cpu')
 
     if args.fuse_conv_bn:

@@ -48,10 +48,12 @@ model = dict(
         kernel_sizes=(3, 3, 3),
         dropout=0.25,
         use_stride_conv=True),
+    # Replace the temporal regression head with the human kinematic layer
     keypoint_head=dict(
-        type='TemporalRegressionHead',
+        type='HumanKinematicRegressionHead', #Using human kinematic layer for regression head
         in_channels=1024,
-        num_joints=17,
+        dataset = 'h36m',
+        mode='3d',
         loss_keypoint=dict(type='MPJPELoss')),
     train_cfg=dict(),
     test_cfg=dict(restore_global_position=True))
@@ -87,10 +89,16 @@ train_pipeline = [
         ],
         visible_item=['input_2d_visible', 'target_visible'],
         flip_prob=0.5),
+    dict(
+        type='GenSkeKinematicFeat', 
+        dataset='h36m', 
+        mode='3d',
+        feats=['euler_angle', 'bone_length'], 
+        ),
     dict(type='PoseSequenceToTensor', item='input_2d'),
     dict(
         type='Collect',
-        keys=[('input_2d', 'input'), 'target'],
+        keys=[('input_2d', 'input'), 'target', 'euler_angle', 'bone_length'],
         meta_name='metas',
         meta_keys=['target_image_path', 'flip_pairs', 'root_position'])
 ]

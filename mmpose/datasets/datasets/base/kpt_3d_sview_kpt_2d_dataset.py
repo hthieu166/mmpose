@@ -100,34 +100,35 @@ class Kpt3dSviewKpt2dDataset(Dataset, metaclass=ABCMeta):
         self.need_2d_label = data_cfg.get('need_2d_label', False)
         self.need_camera_param = False
 
-    def load_annotations(self):
+    def load_annotations(self, skip=1):
         """Load data annotation."""
+        
         data = np.load(self.ann_file)
 
         # get image info
-        _imgnames = data['imgname']
+        _imgnames = data['imgname'][::skip]
         num_imgs = len(_imgnames)
         num_joints = self.ann_info['num_joints']
 
         if 'scale' in data:
-            _scales = data['scale'].astype(np.float32)
+            _scales = data['scale'].astype(np.float32)[::skip]
         else:
             _scales = np.zeros(num_imgs, dtype=np.float32)
 
         if 'center' in data:
-            _centers = data['center'].astype(np.float32)
+            _centers = data['center'].astype(np.float32)[::skip]
         else:
             _centers = np.zeros((num_imgs, 2), dtype=np.float32)
 
         # get 3D pose
         if 'S' in data.keys():
-            _joints_3d = data['S'].astype(np.float32)
+            _joints_3d = data['S'].astype(np.float32)[::skip]
         else:
             _joints_3d = np.zeros((num_imgs, num_joints, 4), dtype=np.float32)
 
         # get 2D pose
         if 'part' in data.keys():
-            _joints_2d = data['part'].astype(np.float32)
+            _joints_2d = data['part'].astype(np.float32)[::skip]
         else:
             _joints_2d = np.zeros((num_imgs, num_joints, 3), dtype=np.float32)
 

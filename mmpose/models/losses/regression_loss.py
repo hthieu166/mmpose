@@ -1,5 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import math
+from turtle import forward
 
 import torch
 import torch.nn as nn
@@ -528,3 +529,12 @@ class SemiSupervisionLoss(nn.Module):
         losses['bone_loss'] = loss_bone
 
         return losses
+
+@LOSSES.register_module()
+class CosineSimilarity(nn.Module):
+    def __init__(self, dim=1, eps=1e-08):
+        super().__init__()
+        self.cos = nn.CosineSimilarity(dim, eps)
+
+    def forward(self, output, target):
+        return self.cos(output, target)

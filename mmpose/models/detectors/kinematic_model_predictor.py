@@ -20,8 +20,8 @@ except ImportError:
 
 
 @POSENETS.register_module()
-class PoseLifter(BasePose):
-    """Pose lifter that lifts 2D pose to 3D pose.
+class KinematicModelPredictor(BasePose):
+    """Predicting Human Body Kinematic Parameters.
 
     The basic model is a pose model that predicts root-relative pose. If
     traj_head is not None, a trajectory model that predicts absolute root joint
@@ -44,12 +44,7 @@ class PoseLifter(BasePose):
 
     def __init__(self,
                  backbone,
-                 neck=None,
-                 keypoint_head=None,
-                 traj_backbone=None,
-                 traj_neck=None,
-                 traj_head=None,
-                 loss_semi=None,
+                 params_pred_head,
                  train_cfg=None,
                  test_cfg=None,
                  pretrained=None):
@@ -62,88 +57,26 @@ class PoseLifter(BasePose):
         # pose model
         self.backbone = builder.build_backbone(backbone)
 
-        if neck is not None:
-            self.neck = builder.build_neck(neck)
-
-        if keypoint_head is not None:
-            keypoint_head['train_cfg'] = train_cfg
-            keypoint_head['test_cfg'] = test_cfg
-            self.keypoint_head = builder.build_head(keypoint_head)
-
-        # trajectory model
-        if traj_head is not None:
-            self.traj_head = builder.build_head(traj_head)
-
-            if traj_backbone is not None:
-                self.traj_backbone = builder.build_backbone(traj_backbone)
-            else:
-                self.traj_backbone = self.backbone
-
-            if traj_neck is not None:
-                self.traj_neck = builder.build_neck(traj_neck)
-
-        # semi-supervised learning
-        self.semi = loss_semi is not None
-        if self.semi:
-            assert keypoint_head is not None and traj_head is not None
-            self.loss_semi = builder.build_loss(loss_semi)
+        # params prediction head
+        self.params_pred_head = builder.build_head(params_pred_head)
         self.pretrained = pretrained
         self.init_weights()
 
-    @property
-    def with_neck(self):
-        """Check if has keypoint_neck."""
-        return hasattr(self, 'neck')
-
-    @property
-    def with_keypoint(self):
-        """Check if has keypoint_head."""
-        return hasattr(self, 'keypoint_head')
-
-    @property
-    def with_traj_backbone(self):
-        """Check if has trajectory_backbone."""
-        return hasattr(self, 'traj_backbone')
-
-    @property
-    def with_traj_neck(self):
-        """Check if has trajectory_neck."""
-        return hasattr(self, 'traj_neck')
-
-    @property
-    def with_traj(self):
-        """Check if has trajectory_head."""
-        return hasattr(self, 'traj_head')
-
-    @property
-    def causal(self):
-        if hasattr(self.backbone, 'causal'):
-            return self.backbone.causal
-        else:
-            raise AttributeError('A PoseLifter\'s backbone should have '
-                                 'the bool attribute "causal" to indicate if'
-                                 'it performs causal inference.')
-
+    
     def init_weights(self, pretrained=None):
         """Weight initialization for model."""
         if pretrained is not None:
             self.pretrained = pretrained
+        # Init backbone
         self.backbone.init_weights(self.pretrained)
-        if self.with_neck:
-            self.neck.init_weights()
-        if self.with_keypoint:
-            self.keypoint_head.init_weights()
-        if self.with_traj_backbone:
-            self.traj_backbone.init_weights(self.pretrained)
-        if self.with_traj_neck:
-            self.traj_neck.init_weights()
-        if self.with_traj:
-            self.traj_head.init_weights()
-
+        # Init params prediction head
+        self.params_pred_head.init_weights()
+        
     @auto_fp16(apply_to=('input', ))
     def forward(self,
                 input,
                 target=None,
+                dirc_vector = None,
                 target_weight=None,
                 metas=None,
                 return_loss=True,
@@ -175,92 +108,59 @@ class PoseLifter(BasePose):
                 Otherwise return predicted poses.
         """
         if return_loss:
-            return self.forward_train(input, target, target_weight, metas,
-                                      **kwargs)
+            return self.forward_train(input, dirc_vector, target, target_weight, metas, **kwargs)
         else:
-            return self.forward_test(input, metas, **kwargs)
-
-    def forward_train(self, input, target, target_weight, metas, **kwargs):
+            return self.forward_test(input, dirc_vector, metas, **kwargs)
+    
+    def _compose_kinematic_params(self, output, kwargs):
+        assert 'bone_length' in kwargs
+        return {
+            "bone_length": kwargs['bone_length'],
+            "dirc_vector": output
+        }
+    def forward_train(self, input, dirc_vector, target, target_weight, metas, **kwargs):
         """Defines the computation performed at every call when training."""
         assert input.size(0) == len(metas)
-
         # supervised learning
         # pose model
         features = self.backbone(input)
-        if self.with_neck:
-            features = self.neck(features)
-        if self.with_keypoint:
-            output = self.keypoint_head(features, **kwargs)
-
+        # prediction head
+        output = self.params_pred_head(features)
+        # compute loss
         losses = dict()
-        if self.with_keypoint:
-            keypoint_losses = self.keypoint_head.get_loss(
-                output, target, target_weight)
-            keypoint_accuracy = self.keypoint_head.get_accuracy(
-                output, target, target_weight, metas)
-            losses.update(keypoint_losses)
+        # Update kinematic model's parameters loss
+        params_losses = self.params_pred_head.get_loss(output, dirc_vector)
+        losses.update(params_losses)
+        # Compute keypoint accuracy
+        if self.params_pred_head.with_kinematic_layer:
+            kinematic_params = self._compose_kinematic_params(output, kwargs)
+            keypoint_accuracy = self.params_pred_head.get_accuracy(
+                    kinematic_params, target, target_weight, metas)
             losses.update(keypoint_accuracy)
-
-        # trajectory model
-        if self.with_traj:
-            traj_features = self.traj_backbone(input)
-            if self.with_traj_neck:
-                traj_features = self.traj_neck(traj_features)
-            traj_output = self.traj_head(traj_features)
-
-            traj_losses = self.traj_head.get_loss(traj_output,
-                                                  kwargs['traj_target'], None)
-            losses.update(traj_losses)
-
-        # semi-supervised learning
-        if self.semi:
-            ul_input = kwargs['unlabeled_input']
-            ul_features = self.backbone(ul_input)
-            if self.with_neck:
-                ul_features = self.neck(ul_features)
-            ul_output = self.keypoint_head(ul_features)
-
-            ul_traj_features = self.traj_backbone(ul_input)
-            if self.with_traj_neck:
-                ul_traj_features = self.traj_neck(ul_traj_features)
-            ul_traj_output = self.traj_head(ul_traj_features)
-
-            output_semi = dict(
-                labeled_pose=output,
-                unlabeled_pose=ul_output,
-                unlabeled_traj=ul_traj_output)
-            target_semi = dict(
-                unlabeled_target_2d=kwargs['unlabeled_target_2d'],
-                intrinsics=kwargs['intrinsics'])
-
-            semi_losses = self.loss_semi(output_semi, target_semi)
-            losses.update(semi_losses)
-
         return losses
 
-    def forward_test(self, input, metas, **kwargs):
+    def forward_test(self, input, dirc_vector, metas, **kwargs):
         """Defines the computation performed at every call when training."""
         if type(metas) != list:
             metas = metas.data[0]
         assert input.size(0) == len(metas)
 
-        results = {}
-
+        results  = {}
         features = self.backbone(input)
-        if self.with_neck:
-            features = self.neck(features)
-        if self.with_keypoint:
-            output = self.keypoint_head.inference_model(features, **kwargs)
-            keypoint_result = self.keypoint_head.decode(metas, output)
+        output   = self.params_pred_head(features)
+        results.update({
+            "preds_dirc_vector" : output,
+            "gt_dirc_vector": dirc_vector
+        })
+        # If the kinematic layer is available:
+        if self.params_pred_head.with_kinematic_layer:
+            kinematic_params = self._compose_kinematic_params(output, kwargs)
+            # Compute keypoints from kinematic params
+            output = self.params_pred_head.infer_kinematic_layer(**kinematic_params)
+            output = output.detach().cpu().numpy()
+            keypoint_result = self.params_pred_head.decode(metas, output)
+            # Update results
             results.update(keypoint_result)
-
-        if self.with_traj:
-            traj_features = self.traj_backbone(input)
-            if self.with_traj_neck:
-                traj_features = self.traj_neck(traj_features)
-            traj_output = self.traj_head.inference_model(traj_features)
-            results['traj_preds'] = traj_output
-        
         return results
 
     def forward_dummy(self, input):
@@ -272,20 +172,7 @@ class PoseLifter(BasePose):
         Returns:
             Tensor: Model output
         """
-        output = self.backbone(input)
-        if self.with_neck:
-            output = self.neck(output)
-        if self.with_keypoint:
-            output = self.keypoint_head(output)
-
-        if self.with_traj:
-            traj_features = self.traj_backbone(input)
-            if self.with_neck:
-                traj_features = self.traj_neck(traj_features)
-            traj_output = self.traj_head(traj_features)
-            output = output + traj_output
-
-        return output
+        raise NotImplementedError
 
     @deprecated_api_warning({'pose_limb_color': 'pose_link_color'},
                             cls_name='PoseLifter')

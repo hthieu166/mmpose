@@ -15,12 +15,13 @@ from .topdown_heatmap_simple_head import TopdownHeatmapSimpleHead
 from .vipnas_heatmap_simple_head import ViPNASHeatmapSimpleHead
 from .voxelpose_head import CuboidCenterHead, CuboidPoseHead
 from .human_kinematic_head import HumanKinematicRegressionHead
-
+from .human_kinematic_params_regression_head import HumanKinematicParamsRegressionHead
 __all__ = [
     'TopdownHeatmapSimpleHead', 'TopdownHeatmapMultiStageHead',
     'TopdownHeatmapMSMUHead', 'TopdownHeatmapBaseHead',
     'AEHigherResolutionHead', 'AESimpleHead', 'AEMultiStageHead',
     'DeepposeRegressionHead', 'TemporalRegressionHead', 'Interhand3DHead',
     'HMRMeshHead', 'DeconvHead', 'ViPNASHeatmapSimpleHead', 'CuboidCenterHead',
-    'CuboidPoseHead', 'MultiModalSSAHead', 'HumanKinematicRegressionHead'
+    'CuboidPoseHead', 'MultiModalSSAHead', 'HumanKinematicRegressionHead',
+    'HumanKinematicParamsRegressionHead'
 ]

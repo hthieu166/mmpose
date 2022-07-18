@@ -6,11 +6,11 @@ from .mse_loss import JointsMSELoss, JointsOHKMMSELoss
 from .multi_loss_factory import AELoss, HeatmapLoss, MultiLossFactory
 from .regression_loss import (BoneLoss, L1Loss, MPJPELoss, MSELoss, RLELoss,
                               SemiSupervisionLoss, SmoothL1Loss, SoftWingLoss,
-                              WingLoss)
-
+                              WingLoss, CosineSimilarity)
 __all__ = [
     'JointsMSELoss', 'JointsOHKMMSELoss', 'HeatmapLoss', 'AELoss',
     'MultiLossFactory', 'MeshLoss', 'GANLoss', 'SmoothL1Loss', 'WingLoss',
     'MPJPELoss', 'MSELoss', 'L1Loss', 'BCELoss', 'BoneLoss',
-    'SemiSupervisionLoss', 'SoftWingLoss', 'AdaptiveWingLoss', 'RLELoss'
+    'SemiSupervisionLoss', 'SoftWingLoss', 'AdaptiveWingLoss', 'RLELoss',
+    'CosineSimilarity'
 ]

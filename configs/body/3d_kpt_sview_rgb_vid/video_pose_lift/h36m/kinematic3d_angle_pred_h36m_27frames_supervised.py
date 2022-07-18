@@ -2,7 +2,7 @@ _base_ = [
     '../../../../_base_/default_runtime.py',
     '../../../../_base_/datasets/h36m.py'
 ]
-evaluation = dict(interval=10, metric=['mpjpe', 'p-mpjpe'], save_best='MPJPE')
+evaluation = dict(interval=1, metric=['angle_l1'], save_best='angle_l1')
 
 # optimizer settings
 optimizer = dict(
@@ -38,7 +38,7 @@ channel_cfg = dict(
 
 # model settings
 model = dict(
-    type='PoseLifter',
+    type='KinematicModelPredictor',
     pretrained=None,
     backbone=dict(
         type='TCN',
@@ -49,12 +49,12 @@ model = dict(
         dropout=0.25,
         use_stride_conv=True),
     # Replace the temporal regression head with the human kinematic layer
-    keypoint_head=dict(
-        type='HumanKinematicRegressionHead', #Using human kinematic layer for regression head
+    params_pred_head=dict(
+        type='HumanKinematicParamsRegressionHead', #Using human kinematic layer for regression head
         in_channels=1024,
         dataset = 'h36m',
         mode='3d',
-        loss_keypoint=dict(type='MPJPELoss')),
+        loss_kinematic_params=dict(type='L1Loss')),
     train_cfg=dict(),
     test_cfg=dict(restore_global_position=True))
 
@@ -80,25 +80,26 @@ train_pipeline = [
         root_name='root_position',
         remove_root=False),
     dict(type='ImageCoordinateNormalization', item='input_2d'),
-    dict(
-        type='RelativeJointRandomFlip',
-        item=['input_2d', 'target'],
-        flip_cfg=[
-            dict(center_mode='static', center_x=0.),
-            dict(center_mode='root', center_index=0)
-        ],
-        visible_item=['input_2d_visible', 'target_visible'],
-        flip_prob=0.5),
+    # No-flipping augmentation
+    # dict( 
+    #     type='RelativeJointRandomFlip',
+    #     item=['input_2d', 'target'],
+    #     flip_cfg=[
+    #         dict(center_mode='static', center_x=0.),
+    #         dict(center_mode='root', center_index=0)
+    #     ],
+    #     visible_item=['input_2d_visible', 'target_visible'],
+    #     flip_prob=0.5),
     dict(
         type='GenSkeKinematicFeat', 
         dataset='h36m', 
         mode='3d',
-        feats=['euler_angle', 'bone_length'], 
+        feats=['dirc_vector'], 
         ),
     dict(type='PoseSequenceToTensor', item='input_2d'),
     dict(
         type='Collect',
-        keys=[('input_2d', 'input'), 'target', 'euler_angle', 'bone_length'],
+        keys=[('input_2d', 'input'), 'target', 'dirc_vector',],
         meta_name='metas',
         meta_keys=['target_image_path', 'flip_pairs', 'root_position'])
 ]
@@ -116,12 +117,12 @@ val_pipeline = [
         type='GenSkeKinematicFeat', 
         dataset='h36m', 
         mode='3d',
-        feats=['euler_angle', 'bone_length'], 
+        feats=['dirc_vector'], 
         ),
     dict(type='PoseSequenceToTensor', item='input_2d'),
     dict(
         type='Collect',
-        keys=[('input_2d', 'input'), 'target', 'euler_angle', 'bone_length'],
+        keys=[('input_2d', 'input'), 'target', 'dirc_vector'],
         meta_name='metas',
         meta_keys=['target_image_path', 'flip_pairs', 'root_position'])
 ]
@@ -129,26 +130,26 @@ val_pipeline = [
 test_pipeline = val_pipeline
 
 data = dict(
-    samples_per_gpu=1024,
-    workers_per_gpu=8,
-    val_dataloader=dict(samples_per_gpu=1024),
-    test_dataloader=dict(samples_per_gpu=1024),
+    samples_per_gpu=128,
+    workers_per_gpu=2,
+    val_dataloader=dict(samples_per_gpu=128),
+    test_dataloader=dict(samples_per_gpu=128),
     train=dict(
-        type='Body3DH36MDataset',
+        type='Body3DH36MKinematicDataset',
         ann_file=f'{data_root}/annotation_body3d/fps50/h36m_train.npz',
         img_prefix=f'{data_root}/images/',
         data_cfg=data_cfg,
         pipeline=train_pipeline,
         dataset_info={{_base_.dataset_info}}),
     val=dict(
-        type='Body3DH36MDataset',
+        type='Body3DH36MKinematicDataset',
         ann_file=f'{data_root}/annotation_body3d/fps50/h36m_test.npz',
         img_prefix=f'{data_root}/images/',
         data_cfg=data_cfg,
         pipeline=val_pipeline,
         dataset_info={{_base_.dataset_info}}),
     test=dict(
-        type='Body3DH36MDataset',
+        type='Body3DH36MKinematicDataset',
         ann_file=f'{data_root}/annotation_body3d/fps50/h36m_test.npz',
         img_prefix=f'{data_root}/images/',
         data_cfg=data_cfg,

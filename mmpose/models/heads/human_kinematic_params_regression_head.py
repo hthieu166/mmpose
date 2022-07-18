@@ -1,6 +1,7 @@
 # Implemented by Hieu Hoang.
 import numpy as np
 import torch.nn as nn
+import torch as T
 from mmcv.cnn import build_conv_layer, constant_init, kaiming_init
 from mmcv.utils.parrots_wrapper import _BatchNorm
 
@@ -9,17 +10,17 @@ from mmpose.core import (WeightNormClipHook, compute_similarity_transform,
 
 from mmpose.models.utils.human_kinematic_utils import HumanKinematic
 from mmpose.models.kinematic.kinematic_layer import Human3DKinematicLayer
-from mmpose.models.builder import HEADS, build_loss
+from mmpose.models.builder import HEADS, build_kinematic_layer, build_loss
 
 
 @HEADS.register_module()
-class HumanKinematicRegressionHead(nn.Module):
+class HumanKinematicParamsRegressionHead(nn.Module):
     """Regression head using human kinematic layer
 
     Args:
         in_channels (int): Number of input channels
         num_joints (int): Number of joints
-        loss_keypoint (dict): Config for keypoint loss. Default: None.
+        loss_kinematic_params (dict): Config for kinematic params loss. Default: None.
         max_norm (float|None): if not None, the weight of convolution layers
             will be clipped to have a maximum norm of max_norm.
         is_trajectory (bool): If the model only predicts root joint
@@ -32,9 +33,9 @@ class HumanKinematicRegressionHead(nn.Module):
                  in_channels,
                  dataset,
                  mode,
+                 kinematic_layer = None,
                  max_norm=None,
-                 loss_keypoint=None,
-                 is_trajectory=False,
+                 loss_kinematic_params=None,
                  train_cfg=None,
                  test_cfg=None):
         super().__init__()
@@ -43,26 +44,34 @@ class HumanKinematicRegressionHead(nn.Module):
         self.in_channels = in_channels
         self.num_joints  = self.layout['n_joints']
         self.num_angles  = len(self.layout['angles'])
+        self.num_bones   = len(self.layout['bones'])
+        
         self.max_norm = max_norm
-        self.loss = build_loss(loss_keypoint)
-        self.is_trajectory = is_trajectory
-        if self.is_trajectory:
-            assert self.num_joints == 1
-
+        self.loss = build_loss(loss_kinematic_params)
+        
         self.train_cfg = {} if train_cfg is None else train_cfg
         self.test_cfg = {} if test_cfg is None else test_cfg
         
-        # Predicting angles for the human kinematic model
+        # Predicting direction vector for the human kinematic model
         self.conv = build_conv_layer(
-            dict(type='Conv1d'), in_channels, len(self.layout['angles']) * 3, 1)
+            dict(type='Conv1d'), in_channels, self.num_bones * 3, 1)
+        
         # Initialize kinematic layer
-        self.kinematic_layer = Human3DKinematicLayer(self.layout)
+        if kinematic_layer is not None:
+            kinematic_layer['layout'] = self.layout
+            self.kinematic_layer = build_kinematic_layer(kinematic_layer)
+        
         if self.max_norm is not None:
             # Apply weight norm clip to conv layers
             weight_clip = WeightNormClipHook(self.max_norm)
             for module in self.modules():
                 if isinstance(module, nn.modules.conv._ConvNd):
                     weight_clip.register(module)
+
+    @property
+    def with_kinematic_layer(self):
+        """Check if this layer has a kinematic layer."""
+        return hasattr(self, 'kinematic_layer')
 
     @staticmethod
     def _transform_inputs(x):
@@ -82,26 +91,25 @@ class HumanKinematicRegressionHead(nn.Module):
         # return the top-level feature of the 1D feature pyramid
         return x[-1]
 
-    def forward(self, x, **kwargs):
+    def infer_kinematic_layer(self, **kinematic_params):
+        assert self.kinematic_layer is not None
+        return  self.kinematic_layer(**kinematic_params)
+
+    def forward(self, x):
         """Forward function."""
         x = self._transform_inputs(x)
 
         assert x.ndim == 3 and x.shape[2] == 1, f'Invalid shape {x.shape}'
         
         # Kinematic parameters regression
-        rot_params = self.conv(x)
-        bone_length= kwargs["bone_length"]
-       
-        # Kinematic layer predicts 3D joints location 
-        euler_angle= rot_params.reshape(-1, self.num_angles, 3)
-        output     = self.kinematic_layer(
-            bone_length = bone_length,
-            euler_angle = euler_angle
-        )
+        output = self.conv(x)
         N = output.shape[0]
-        return output.reshape(N, self.num_joints, 3)
+        output = output.reshape(N, self.num_bones, 3)
+        # Normalizing to unit-vector
+        output = output/T.linalg.norm(output, dim=-1)[...,None]
+        return output
 
-    def get_loss(self, output, target, target_weight):
+    def get_loss(self, output, dirc_vector):
         """Calculate keypoint loss.
 
         Note:
@@ -119,28 +127,10 @@ class HumanKinematicRegressionHead(nn.Module):
         """
         losses = dict()
         assert not isinstance(self.loss, nn.Sequential)
-
-        # trajectory model
-        if self.is_trajectory:
-            if target.dim() == 2:
-                target.unsqueeze_(1)
-
-            if target_weight is None:
-                target_weight = (1 / target[:, :, 2:]).expand(target.shape)
-            assert target.dim() == 3 and target_weight.dim() == 3
-
-            losses['traj_loss'] = self.loss(output, target, target_weight)
-
-        # pose model
-        else:
-            if target_weight is None:
-                target_weight = target.new_ones(target.shape)
-            assert target.dim() == 3 and target_weight.dim() == 3
-            losses['reg_loss'] = self.loss(output, target, target_weight)
-
+        losses['reg_loss'] = self.loss(output, dirc_vector)
         return losses
 
-    def get_accuracy(self, output, target, target_weight, metas):
+    def get_accuracy(self, kinematic_params, target, target_weight, metas):
         """Calculate accuracy for keypoint loss.
 
         Note:
@@ -164,7 +154,8 @@ class HumanKinematicRegressionHead(nn.Module):
                 - root_index (torch.ndarray[1,]): Optional, original index of
                     the root joint before root-centering.
         """
-
+        assert self.with_kinematic_layer
+        output = self.infer_kinematic_layer(**kinematic_params)
         accuracy = dict()
 
         N = output.shape[0]
@@ -214,7 +205,7 @@ class HumanKinematicRegressionHead(nn.Module):
 
         return accuracy
 
-    def inference_model(self, x, flip_pairs=None, **kwargs):
+    def inference_model(self, x):
         """Inference function.
 
         Returns:
@@ -225,16 +216,8 @@ class HumanKinematicRegressionHead(nn.Module):
             flip_pairs (None | list[tuple()):
                 Pairs of keypoints which are mirrored.
         """
-        output = self.forward(x, **kwargs)
-
-        if flip_pairs is not None:
-            output_regression = fliplr_regression(
-                output.detach().cpu().numpy(),
-                flip_pairs,
-                center_mode='static',
-                center_x=0)
-        else:
-            output_regression = output.detach().cpu().numpy()
+        output = self.forward(x)
+        output_regression = output.detach().cpu().numpy()
         return output_regression
 
     def decode(self, metas, output):

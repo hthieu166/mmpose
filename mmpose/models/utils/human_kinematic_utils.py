@@ -97,6 +97,10 @@ class HumanKinematic():
             return keypoint[:, v[1]] - keypoint[:, v[0]]
         
     @staticmethod
+    def normalized_vector(vec):
+        return vec/(np.linalg.norm(vec, axis=1) + 1e-6)[:,None]
+
+    @staticmethod
     def get_layout(dataset: str, mode :str):
         dataset, mode = dataset.lower(), mode.lower()
         assert dataset in ['ntu', 'h36m']

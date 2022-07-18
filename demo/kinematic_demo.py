@@ -14,7 +14,7 @@ from mmpose.datasets import build_dataset, build_dataloader
 from mmpose.datasets.builder import PIPELINES
 from mmpose.datasets import DatasetInfo
 from mmpose.models import   build_posenet
-from mmpose.models.kinematic import Human3DKinematicLayer
+from mmpose.models.kinematic import Human3DKinematicLayer, Human3DKinematicLayerV2
 from mmpose.models.utils.human_kinematic_utils import HumanKinematic
 from mmpose.apis   import  vis_3d_pose_result, init_pose_model, inference_pose_lifter_model, single_gpu_test
 
@@ -22,7 +22,7 @@ PIPELINES = Registry('pipeline')
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, default="../configs/body/3d_kpt_sview_rgb_vid/video_pose_lift/h36m/kinematic3d_h36m_27frames_fullconv_supervisied.py")
+    parser.add_argument('--config', type=str, default="../configs/body/3d_kpt_sview_rgb_vid/video_kinematic_pose_lift/h36m/kinematic3d_params_optimz_h36m_27frames_supervised.py")
     parser.add_argument('--checkpoint', 
         default="../tools/work_dirs/videopose3d_h36m_27frames_fullconv_supervised/latest.pth")
     return parser.parse_args()
@@ -106,30 +106,34 @@ def main():
     dataset_info = DatasetInfo(data_cfg.dataset_info)
     
     # Prepare pose model (for inference)
-    pose_lift_model  = init_pose_model(cfg, args.checkpoint)
+    pose_lift_model = build_posenet(cfg.model)
+    # pose_lift_model  = init_pose_model(cfg, args.checkpoint)
     
     # [DEBUG] Prepare kinematic layer 
     kinematic_layout = HumanKinematic.get_layout('h36m', '3d')
-    pose_kinematic_layer = Human3DKinematicLayer(
+    pose_kinematic_layer = Human3DKinematicLayerV2(
         layout=kinematic_layout
     ) 
 
     # Run 2D-3D pose lifting
+    # for i, data in enumerate(pose_lift_dataloader):
+    #     print(i, data['input'].shape)
     data = next(iter(pose_lift_dataloader))
-   
-    pose_lift_model = MMDataParallel(pose_lift_model, device_ids=[0])
-    with torch.no_grad():
-        result = pose_lift_model(return_loss=False, **data)
 
-    est_pose_from_kinematic_layer = pose_kinematic_layer(data['euler_angle'], data['bone_length'],) 
+    # pose_lift_model = MMDataParallel(pose_lift_model, device_ids=[0])
+    # with torch.no_grad():
+        # result = pose_lift_model(return_loss=False, **data)
+
+    est_pose_from_kinematic_layer = pose_kinematic_layer(data['dirc_vector'], data['bone_length'],) 
     print(est_pose_from_kinematic_layer.shape)
     # Process pose lifting result
     
     # Visualize dataset
-    pose_lift_results_vis = process_result(result)
+    # pose_lift_results_vis = process_result(result)
+    # Visualize gt
     pose_lift_gt_vis = [dict(
         keypoints_3d = process_3dkpts(data['target'][i].cpu().numpy())) for i in range(len(data['target']))]
-    # import ipdb; ipdb.set_trace()
+    # Visualize prediction from kinematic layer
     pose_kinematic_vis= [dict(
         keypoints_3d = process_3dkpts(est_pose_from_kinematic_layer[i].cpu().numpy())) for i in range(len(est_pose_from_kinematic_layer))
     ]
@@ -150,13 +154,13 @@ def main():
         out_file="kinematic.png",
         num_instances=1)
     
-    img_preds = vis_3d_pose_result(
-        model  = pose_lift_model,
-        result = pose_lift_results_vis,
-        dataset= "Body3DH36MDataset",
-        dataset_info=  dataset_info,
-        out_file="preds.png",
-        num_instances=1)
+    # img_preds = vis_3d_pose_result(
+    #     model  = pose_lift_model,
+    #     result = pose_lift_results_vis,
+    #     dataset= "Body3DH36MDataset",
+    #     dataset_info=  dataset_info,
+    #     out_file="preds.png",
+    #     num_instances=1)
     
 if __name__ == '__main__':
     main()

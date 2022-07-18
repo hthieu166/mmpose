@@ -12,6 +12,7 @@ HEADS = MODELS
 LOSSES = MODELS
 POSENETS = MODELS
 MESH_MODELS = MODELS
+KINEMATIC_LAYER = MODELS
 
 
 def build_backbone(cfg):
@@ -42,3 +43,7 @@ def build_posenet(cfg):
 def build_mesh_model(cfg):
     """Build mesh model."""
     return MESH_MODELS.build(cfg)
+
+def build_kinematic_layer(cfg):
+    """Build kinematic layer."""
+    return KINEMATIC_LAYER.build(cfg)

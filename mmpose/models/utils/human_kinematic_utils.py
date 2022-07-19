@@ -124,6 +124,12 @@ class HumanKinematic():
         for i, (j0, j1) in enumerate(layout['bones']):
             bone_length[i] = np.linalg.norm(keypoint[j1,:] - keypoint[j0,:], axis=0)
         return bone_length
+    
+    @staticmethod
+    def compute_rotation_matrix_between_two_vectors(v1, v2):
+        rot_axis = np.cross(v2, v1)
+        rot_theta= HumanKinematic.vector_angle(v1, v2)
+        return HumanKinematic.rotation_matrix(rot_axis, rot_theta)
 
     @staticmethod
     def compute_rotation_matrix_from_joints_position(keypoint, layout):
@@ -133,10 +139,9 @@ class HumanKinematic():
         rot_mat  = np.zeros((nb, len(layout['angles']), nd, nd))
         for i, (p1,p2) in enumerate(layout['angles']):
             v1 = HumanKinematic.get_vector(keypoint, layout, p1) 
-            v2 = HumanKinematic.get_vector(keypoint, layout, p2)
-            rot_axis = np.cross(v2, v1)
-            rot_theta= HumanKinematic.vector_angle(v1, v2)
-            rot_mat[:,i,...] = HumanKinematic.rotation_matrix(rot_axis, rot_theta)
+            v2 = HumanKinematic.get_vector(keypoint, layout, p2)    
+            rot_mat[:,i,...] = HumanKinematic.compute_rotation_matrix_between_two_vectors(v1, v2)
+
         rot_mat = rot_mat.reshape(nb, len(layout['angles']), nd, nd)
         return rot_mat[0]
 
@@ -161,4 +166,19 @@ class HumanKinematic():
     def compute_euler_angle_from_joints_position(keypoint: np.array, layout):
         rot_mat = HumanKinematic.compute_rotation_matrix_from_joints_position(keypoint, layout)
         euler_ang = HumanKinematic.compute_x_from_rotation_matrix(rot_mat)
+        return euler_ang
+    
+    @staticmethod 
+    def compute_euler_angle_from_vector(vectors: np.array):
+        if len(vectors.shape) == 3:
+            ns, nj, nd = vectors.shape
+            _vectors    = vectors.reshape(ns*nj, -1)
+        
+        rot_mat = HumanKinematic.compute_rotation_matrix_between_two_vectors(
+            _vectors,
+            HumanKinematic.UP_VECTOR_3D.repeat(len(_vectors), axis=0) 
+        )
+        euler_ang = HumanKinematic.compute_x_from_rotation_matrix(rot_mat)
+        if len(vectors.shape) == 3:
+            euler_ang    = euler_ang.reshape(ns, nj, -1)
         return euler_ang

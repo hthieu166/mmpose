@@ -110,7 +110,7 @@ class KinematicModelPredictor(BasePose):
         if return_loss:
             return self.forward_train(input, dirc_vector, target, target_weight, metas, **kwargs)
         else:
-            return self.forward_test(input, dirc_vector, metas, **kwargs)
+            return self.forward_test(input, dirc_vector, metas, target,  **kwargs)
     
     def _compose_kinematic_params(self, output, kwargs):
         assert 'bone_length' in kwargs
@@ -139,7 +139,7 @@ class KinematicModelPredictor(BasePose):
             losses.update(keypoint_accuracy)
         return losses
 
-    def forward_test(self, input, dirc_vector, metas, **kwargs):
+    def forward_test(self, input, dirc_vector, metas, target, **kwargs):
         """Defines the computation performed at every call when training."""
         if type(metas) != list:
             metas = metas.data[0]
@@ -161,6 +161,8 @@ class KinematicModelPredictor(BasePose):
             keypoint_result = self.params_pred_head.decode(metas, output)
             # Update results
             results.update(keypoint_result)
+
+        import ipdb; ipdb.set_trace()
         return results
 
     def forward_dummy(self, input):

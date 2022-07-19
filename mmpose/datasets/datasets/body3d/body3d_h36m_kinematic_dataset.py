@@ -47,6 +47,7 @@ class Body3DH36MKinematicDataset(Body3DH36MDataset):
             for i, result in enumerate(results):
                 preds = result['preds_dirc_vector']
                 gts   = result['gt_dirc_vector']
+                import ipdb; ipdb.set_trace()
                 l1_loss += criteria(preds, gts).item()
             l1_loss = l1_loss/len(results)
             eval_res["angle_l1"] = l1_loss

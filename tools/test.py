@@ -3,7 +3,7 @@ import argparse
 import os
 import os.path as osp
 import warnings
-
+from glob import glob
 import mmcv
 import torch
 from mmcv import Config, DictAction
@@ -152,8 +152,14 @@ def main():
         wrap_fp16_model(model)
     
     if args.checkpoint is None:
-        args.checkpoint = osp.join('./work_dirs',
-                                osp.splitext(osp.basename(args.config))[0], "latest.pth")
+        checkpoint_dir = osp.join('./work_dirs', osp.splitext(osp.basename(args.config))[0])
+        # Find best model
+        best_models    = sorted(glob(osp.join(checkpoint_dir, "best_*")))
+        if len(best_models) == 0:
+            args.checkpoint = osp.join(checkpoint_dir, "latest.pth")
+        else:
+            args.checkpoint =  best_models[-1]
+        
     load_checkpoint(model, args.checkpoint, map_location='cpu')
 
     if args.fuse_conv_bn:
@@ -175,9 +181,10 @@ def main():
     eval_config = merge_configs(eval_config, dict(metric=args.eval))
 
     if rank == 0:
-        if args.out:
-            print(f'\nwriting results to {args.out}')
-            mmcv.dump(outputs, args.out)
+        if not args.out:
+            args.out = os.path.join(cfg.work_dir, "eval_results.pkl")
+        print(f'\nwriting results to {args.out}')
+        mmcv.dump(outputs, args.out)
 
         results = dataset.evaluate(outputs, cfg.work_dir, **eval_config)
         for k, v in sorted(results.items()):
